@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>CCAR-F Mock Exam</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--text:#17202a;--muted:#68737d;--line:#dfe4e8;--accent:#5b4bdb;--good:#16834b;--bad:#c62828}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+header{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.94);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);padding:12px 16px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px}.title{font-weight:800;font-size:18px}.timer{font-variant-numeric:tabular-nums;font-weight:800;color:var(--accent)}
+.wrap{max-width:850px;margin:auto;padding:18px 14px 100px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 3px 16px #00000008}
+.progress{height:7px;background:#e8ebef;border-radius:99px;overflow:hidden;margin:12px 0 18px}.bar{height:100%;background:var(--accent);width:0}
+.meta{color:var(--muted);font-size:13px;margin-bottom:8px}.q{font-size:20px;line-height:1.45;font-weight:750;margin:8px 0 18px}
+.option{display:block;width:100%;text-align:left;background:#fff;border:1.5px solid var(--line);border-radius:13px;padding:15px;margin:10px 0;font-size:16px;line-height:1.4;cursor:pointer}
+.option.selected{border-color:var(--accent);background:#f1efff}.letter{font-weight:800;margin-right:8px}
+.actions{display:flex;gap:9px;justify-content:space-between;margin-top:20px}.btn{border:0;border-radius:11px;padding:12px 16px;font-weight:750;font-size:15px;cursor:pointer}.primary{background:var(--accent);color:#fff}.secondary{background:#eef0f3;color:var(--text)}.danger{background:#ffe8e8;color:var(--bad)}
+.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin-top:15px}.qnum{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 3px;text-align:center;font-size:12px}.qnum.done{background:#e8f6ef;border-color:#b7e1c8}.qnum.flag{outline:2px solid #e0b400}
+.score{font-size:48px;font-weight:900;text-align:center}.center{text-align:center}.resultrow{display:flex;gap:10px;margin:16px 0}.stat{flex:1;background:#f7f8fa;border-radius:12px;padding:12px;text-align:center}.stat b{display:block;font-size:24px}.review{border-top:1px solid var(--line);padding:18px 0}.correct{color:var(--good);font-weight:750}.incorrect{color:var(--bad);font-weight:750}.small{font-size:13px;color:var(--muted)}.hidden{display:none!important}
+@media(max-width:600px){.q{font-size:18px}.card{padding:16px}.actions{position:sticky;bottom:8px;background:transparent}.grid{grid-template-columns:repeat(6,1fr)}}
+</style>
+</head>
+<body>
+<header><div class="top"><div class="title">CCAR-F Mock Exam</div><div id="timer" class="timer">--:--</div></div></header>
+
+<main class="wrap">
+<section id="home" class="card">
+<h2>Claude Certified Architect — Foundations</h2>
+<p>This practice app uses the questions from the public <b>paullarionov/claude-certified-architect</b> practical test. It creates a randomized mock, records your answers locally on this iPad, and gives you a review of mistakes.</p>
+<div class="resultrow"><div class="stat"><b id="qcount">—</b><span class="small">questions</span></div><div class="stat"><b>60</b><span class="small">minutes</span></div><div class="stat"><b id="runs">0</b><span class="small">saved runs</span></div></div>
+<button class="btn primary" onclick="startExam()">Start Mock Exam</button>
+<p class="small" style="margin-top:14px">Tip: treat this like the real exam. Do not open the explanations until you submit.</p>
+</section>
+
+<section id="exam" class="hidden">
+<div class="card">
+<div class="meta"><span id="counter"></span> · <span id="scenario"></span></div>
+<div class="progress"><div id="bar" class="bar"></div></div>
+<div id="question" class="q"></div>
+<div id="options"></div>
+<div class="actions">
+<button class="btn secondary" onclick="prevQ()">← Previous</button>
+<button class="btn secondary" onclick="flagQ()">⚑ Flag</button>
+<button class="btn primary" onclick="nextQ()">Next →</button>
+</div>
+</div>
+<div class="card" style="margin-top:12px"><div class="small">Jump to question</div><div id="grid" class="grid"></div></div>
+</section>
+
+<section id="result" class="card hidden">
+<div class="center"><h2>Mock Complete</h2><div id="score" class="score"></div><div id="summary"></div></div>
+<div id="reviews"></div>
+<div class="actions"><button class="btn secondary" onclick="location.reload()">New Mock</button><button class="btn primary" onclick="startExam()">Retry</button></div>
+</section>
+</main>
+
+<script>
+const SOURCE='https://raw.githubusercontent.com/paullarionov/claude-certified-architect/main/practical_test_en.html';
+let all=[], exam=[], answers={}, flags=new Set(), current=0, endAt=0, tick=null;
+
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+async function loadQuestions(){
+  const r=await fetch(SOURCE,{cache:'no-store'}); const text=await r.text();
+  const m=text.match(/const QUESTIONS\s*=\s*(\[[\s\S]*?\]);\s*const state/);
+  if(!m) throw new Error('Could not read question bank');
+  all=JSON.parse(m[1]).filter(q=>q.question && q.options && q.correct);
+  $('qcount').textContent=all.length;
+  $('runs').textContent=JSON.parse(localStorage.ccarRuns||'[]').length;
+}
+function shuffle(a){return [...a].sort(()=>Math.random()-.5)}
+function startExam(){
+  if(!all.length){loadQuestions().then(startExam).catch(e=>alert('Could not load the question bank. Open this page while online.'));return}
+  exam=shuffle(all); answers={};flags=new Set();current=0;endAt=Date.now()+60*60*1000;
+  $('home').classList.add('hidden');$('result').classList.add('hidden');$('exam').classList.remove('hidden');
+  clearInterval(tick);tick=setInterval(updateTimer,1000);render();
+}
+function updateTimer(){let s=Math.max(0,Math.floor((endAt-Date.now())/1000));$('timer').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');if(!s)finish()}
+function render(){
+ const q=exam[current], total=exam.length, selected=answers[current];
+ $('counter').textContent=`Question ${current+1} of ${total}`;$('scenario').textContent=q.scenario||'';
+ $('bar').style.width=((current+1)/total*100)+'%';$('question').textContent=q.question;
+ $('options').innerHTML=q.options.map(o=>`<button class="option ${selected===o.letter?'selected':''}" onclick="choose('${o.letter}')"><span class="letter">${o.letter}.</span>${esc(o.text)}</button>`).join('');
+ $('grid').innerHTML=exam.map((_,i)=>`<button class="qnum ${answers[i]?'done':''} ${flags.has(i)?'flag':''}" onclick="gotoQ(${i})">${i+1}</button>`).join('');
+}
+function choose(x){answers[current]=x;render()}
+function prevQ(){if(current>0){current--;render()}}
+function nextQ(){if(current<exam.length-1){current++;render()}else finish()}
+function gotoQ(i){current=i;render()}
+function flagQ(){flags.has(current)?flags.delete(current):flags.add(current);render()}
+function finish(){
+ clearInterval(tick);
+ let correct=0;exam.forEach((q,i)=>{if(answers[i]===q.correct)correct++});
+ let pct=Math.round(correct/exam.length*100);
+ $('exam').classList.add('hidden');$('result').classList.remove('hidden');$('timer').textContent='Done';
+ $('score').textContent=pct+'%';
+ $('summary').innerHTML=`<div class="resultrow"><div class="stat"><b>${correct}</b>Correct</div><div class="stat"><b>${exam.length-correct}</b>Incorrect</div><div class="stat"><b>${exam.filter((_,i)=>answers[i]).length}</b>Answered</div></div>`;
+ let run={date:new Date().toISOString(),score:pct,correct,total:exam.length,wrong:exam.map((q,i)=>answers[i]!==q.correct?q.global_n:null).filter(Boolean)};
+ let runs=JSON.parse(localStorage.ccarRuns||'[]');runs.unshift(run);localStorage.ccarRuns=JSON.stringify(runs.slice(0,30));
+ $('reviews').innerHTML=exam.map((q,i)=>{
+   let ok=answers[i]===q.correct;
+   return `<div class="review"><div class="${ok?'correct':'incorrect'}">${ok?'✓ Correct':'✗ Incorrect'} · Q${q.global_n||i+1}</div><p><b>${esc(q.question)}</b></p><p>Your answer: <b>${answers[i]||'Not answered'}</b> · Correct: <b>${q.correct}</b></p><p class="small">${esc(q.explanation||'')}</p></div>`;
+ }).join('');
+ window.scrollTo(0,0);
+}
+loadQuestions().catch(()=>{});
+</script>
+</body></html>
